@@ -4,7 +4,7 @@ from discord.ext import commands
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# 環境変数の読み込み (.envファイルを使用する場合)
+# 環境変数の読み込み
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -33,7 +33,7 @@ PERSONA_INSTRUCTION = """
 - AIであることを不自然に隠す必要はありませんが、設定された人格・口調を崩さずに回答してください。
 """
 
-# Geminiモデルの初期化（システムインストラクションを適用）
+# Geminiモデルの初期化
 generation_config = {
     "temperature": 0.7,
     "top_p": 0.95,
@@ -41,10 +41,21 @@ generation_config = {
 }
 
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",  # または gemini-1.5-pro
+    model_name="gemini-1.5-flash",
     generation_config=generation_config,
     system_instruction=PERSONA_INSTRUCTION
 )
+
+# チャンネルごとのチャットセッションを保持する辞書
+# 構造: { channel_id: chat_session }
+chat_sessions = {}
+
+def get_or_create_chat_session(channel_id):
+    """チャンネルごとに会話履歴（セッション）を管理する"""
+    if channel_id not in chat_sessions:
+        # 新しいチャットセッションを開始
+        chat_sessions[channel_id] = model.start_chat(history=[])
+    return chat_sessions[channel_id]
 
 # Discord Botのセットアップ
 intents = discord.Intents.default()
@@ -63,8 +74,14 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    # コマンドの処理（!help などを作る場合に必要）
+    await bot.process_commands(message)
+
     # Botがメンションされた場合、または返信された場合にAIが応答
-    if bot.user.mentioned_in(message) or (message.reference and message.reference.resolved and message.reference.resolved.author == bot.user):
+    is_mentioned = bot.user.mentioned_in(message)
+    is_replied = message.reference and message.reference.resolved and message.reference.resolved.author == bot.user
+
+    if is_mentioned or is_replied:
         async with message.channel.typing():
             try:
                 # メンション部分を除去してプロンプトにする
@@ -72,11 +89,12 @@ async def on_message(message):
                 if not user_content:
                     user_content = "……何か？"
 
-                # Geminiに送信して応答を生成
-                response = model.generate_content(user_content)
+                # チャンネルごとのチャットセッションを取得してメッセージを送信
+                chat = get_or_create_chat_session(message.channel.id)
+                response = chat.send_message(user_content)
                 reply_text = response.text
 
-                # Discordの文字数制限（2000文字）に配慮して送信
+                # Discordの文字数制限（2000文字）に配慮
                 if len(reply_text) > 2000:
                     reply_text = reply_text[:1997] + "..."
 
@@ -85,9 +103,6 @@ async def on_message(message):
             except Exception as e:
                 print(f"Error generating response: {e}")
                 await message.reply("……思考にノイズが走った。少し時間をくれ。")
-
-    # コマンドの処理を続行するために必要
-    await bot.process_commands(message)
 
 # ボットの起動
 if __name__ == "__main__":
