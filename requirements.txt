@@ -1,6 +1,5 @@
 discord.py
 google-generativeai
-python-dotenv
 requests
 beautifulsoup4
 youtube_transcript_api
