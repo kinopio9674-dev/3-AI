@@ -173,6 +173,8 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 chat_sessions = {}
+# チャンネルごとの返信モード管理 (デフォルト: 0 = 通常ユーザーのみ, 1 = ボットにも返信する)
+bot_reply_modes = {}
 
 def get_chat_session(channel_id):
     if channel_id not in chat_sessions:
@@ -398,17 +400,31 @@ async def fetch_context_investigation(message, text):
                 extra_data += f"\n【対象({target_member.display_name})の直近の痕跡ログ】\n" + "\n".join(found) + "\n"
     return extra_data
 
+@bot.command(name="mode")
+async def set_mode(ctx, mode_val: int):
+    """BOTへの返信モードを切り替えるコマンド (!mode 0 または !mode 1)"""
+    if mode_val in [0, 1]:
+        bot_reply_modes[ctx.channel.id] = mode_val
+        if mode_val == 0:
+            await ctx.reply("……観測モードを **[0]** に移行した。人間の言葉のみに反応する。")
+        else:
+            await ctx.reply("……観測モードを **[1]** に移行した。他の個体（Bot）からの干渉も許容する。")
+    else:
+        await ctx.reply("⚠️ 指定できる値は `0`（通常）か `1`（Bot返信有効）のみだ。")
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name} (Active Model: {ACTIVE_MODEL}) - ペルソナ稼働中")
 
 @bot.event
 async def on_message(message):
-    # 他のボットからのメッセージかどうかの判定を解除し、ボットに対しても返信する仕様に変更
     if message.author == bot.user:
         return
 
     content = message.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+
+    # コマンドの処理 (!mode 等) を通すために先にプロセスする
+    await bot.process_commands(message)
 
     if content.lower() in ["!reset", "リセット", "忘れて"]:
         if message.channel.id in chat_sessions:
@@ -416,8 +432,22 @@ async def on_message(message):
         await message.reply("……記憶の断片をリセットした。再び孤独な探求に戻ろう。")
         return
 
-    # ボットからのメッセージ、もしくは自分へのメンション、またはDMである場合に反応するように拡張
-    if message.author.bot or bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
+    # モードの確認 (デフォルトは 0: Botからのメッセージを無視する)
+    current_mode = bot_reply_modes.get(message.channel.id, 0)
+
+    # current_modeが0で作者がボットの場合は処理を終了
+    if current_mode == 0 and message.author.bot:
+        return
+
+    # current_modeが1の場合はボットのメッセージも含めて処理するが、自分自身(bot.user)への返信は除外
+    if message.author.bot and current_mode == 1:
+        pass
+    elif message.author.bot:
+        return
+
+    # 自分へのメンション、またはDM、あるいはコマンド（!mode等）以外の通常メッセージで反応
+    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel) or message.author.bot or not message.content.startswith("!"):
+        # ※もし特定の条件でのみ反応させたい場合はここを調整できます
         user_text = content
         if not user_text and not message.attachments:
             return
