@@ -404,6 +404,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    # 他のボットからのメッセージかどうかの判定を解除し、ボットに対しても返信する仕様に変更
     if message.author == bot.user:
         return
 
@@ -415,7 +416,8 @@ async def on_message(message):
         await message.reply("……記憶の断片をリセットした。再び孤独な探求に戻ろう。")
         return
 
-    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
+    # ボットからのメッセージ、もしくは自分へのメンション、またはDMである場合に反応するように拡張
+    if message.author.bot or bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
         user_text = content
         if not user_text and not message.attachments:
             return
@@ -429,13 +431,14 @@ async def on_message(message):
                         if img_pil:
                             image_parts.append(img_pil)
 
-                # --- ユーザー識別機能の付与 ---
+                # --- ユーザー/ボット識別情報の付与 ---
                 author = message.author
                 user_identity_prefix = (
-                    f"[現在話しているユーザー情報]\n"
+                    f"[現在話しているユーザー/ボット情報]\n"
                     f"- 表示名: {author.display_name}\n"
                     f"- アカウント名: {author.name}\n"
                     f"- ユーザーID: {author.id}\n"
+                    f"- ボットか: {author.bot}\n"
                     f"- アカウント作成日時: {author.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
                 )
                 if message.guild and isinstance(author, discord.Member):
