@@ -429,7 +429,25 @@ async def on_message(message):
                         if img_pil:
                             image_parts.append(img_pil)
 
-                input_to_gemini = user_text if user_text else "この視覚情報を解析し、真実を見出す。"
+                # --- ユーザー識別機能の付与 ---
+                author = message.author
+                user_identity_prefix = (
+                    f"[現在話しているユーザー情報]\n"
+                    f"- 表示名: {author.display_name}\n"
+                    f"- アカウント名: {author.name}\n"
+                    f"- ユーザーID: {author.id}\n"
+                    f"- アカウント作成日時: {author.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                )
+                if message.guild and isinstance(author, discord.Member):
+                    joined_str = author.joined_at.strftime('%Y-%m-%d %H:%M:%S') if author.joined_at else '不明'
+                    roles_list = [r.name for r in author.roles if r.name != "@everyone"]
+                    user_identity_prefix += (
+                        f"- サーバー参加日時: {joined_str}\n"
+                        f"- 所属役職: {', '.join(roles_list) if roles_list else 'なし'}\n"
+                    )
+                user_identity_prefix += f"\n[発言内容]\n{user_text if user_text else '（テキストなし・添付ファイル/視覚情報のみ）'}\n"
+
+                input_to_gemini = user_identity_prefix
 
                 if "http://" in user_text or "https://" in user_text or "www." in user_text:
                     extra_data = await process_all_links_async(user_text)
