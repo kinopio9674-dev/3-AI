@@ -173,7 +173,8 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 chat_sessions = {}
-# チャンネルごとの返信モード管理 (デフォルト: 0 = 通常ユーザーのみ, 1 = ボットにも返信する)
+# チャンネルごとの返信モード管理
+# 0 = 通常ユーザーのみ（メンション必須）、1 = ボットにも返信する（人間はメンション必須）、2 = 人間に返信する際はメンション不要、BOTにはメンションなしで返信
 bot_reply_modes = {}
 
 def get_chat_session(channel_id):
@@ -402,15 +403,17 @@ async def fetch_context_investigation(message, text):
 
 @bot.command(name="mode")
 async def set_mode(ctx, mode_val: int):
-    """BOTへの返信モードを切り替えるコマンド (!mode 0 または !mode 1)"""
-    if mode_val in [0, 1]:
+    """BOTへの返信モードを切り替えるコマンド (!mode 0, !mode 1, !mode 2)"""
+    if mode_val in [0, 1, 2]:
         bot_reply_modes[ctx.channel.id] = mode_val
         if mode_val == 0:
-            await ctx.reply("……観測モードを **[0]** に移行した。人間の言葉のみに反応する。")
+            await ctx.reply("……観測モードを **[0]** に移行した。人間の言葉のみ（メンション必須）に反応する。")
+        elif mode_val == 1:
+            await ctx.reply("……観測モードを **[1]** に移行した。他の個体（Bot）からの干渉も許容する（メンション必須）。")
         else:
-            await ctx.reply("……観測モードを **[1]** に移行した。他の個体（Bot）からの干渉も許容する。")
+            await ctx.reply("……観測モードを **[2]** に移行した。人間への返信はメンション不要、BOTにはメンションなしで返信する。")
     else:
-        await ctx.reply("⚠️ 指定できる値は `0`（通常）か `1`（Bot返信有効）のみだ。")
+        await ctx.reply("⚠️ 指定できる値は `0`（通常・メンション必須）, `1`（Bot返信有効・メンション必須）, `2`（メンション不要 / BOTにはメンションなし）だ。")
 
 @bot.event
 async def on_ready():
@@ -432,22 +435,33 @@ async def on_message(message):
         await message.reply("……記憶の断片をリセットした。再び孤独な探求に戻ろう。")
         return
 
-    # モードの確認 (デフォルトは 0: Botからのメッセージを無視する)
+    # モードの確認 (デフォルトは 0)
     current_mode = bot_reply_modes.get(message.channel.id, 0)
 
-    # current_modeが0で作者がボットの場合は処理を終了
-    if current_mode == 0 and message.author.bot:
-        return
+    # --- モード別の判定ロジック ---
+    is_bot = message.author.bot
 
-    # current_modeが1の場合はボットのメッセージも含めて処理するが、自分自身(bot.user)への返信は除外
-    if message.author.bot and current_mode == 1:
-        pass
-    elif message.author.bot:
-        return
+    if current_mode == 0:
+        # モード0: 人間のみ、メンションが必須
+        if is_bot or not bot.user.mentioned_in(message):
+            return
+    elif current_mode == 1:
+        # モード1: ボットも含めるが、メンションが必須
+        if not bot.user.mentioned_in(message):
+            return
+    elif current_mode == 2:
+        # モード2: 
+        # - 人間からのメッセージ：メンション不要（常に反応）
+        # - ボットからのメッセージ：メンションなしの場合のみ反応（メンション付きは無限ループ防止のため無視、あるいは仕様に合わせる）
+        if is_bot:
+            if bot.user.mentioned_in(message):
+                return
+        else:
+            # 人間からのメッセージの場合はメンションがなくても反応する（DMやコマンド以外でも）
+            pass
 
     # 自分へのメンション、またはDM、あるいはコマンド（!mode等）以外の通常メッセージで反応
-    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel) or message.author.bot or not message.content.startswith("!"):
-        # ※もし特定の条件でのみ反応させたい場合はここを調整できます
+    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel) or is_bot or current_mode == 2 or not message.content.startswith("!"):
         user_text = content
         if not user_text and not message.attachments:
             return
